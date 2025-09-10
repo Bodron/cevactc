@@ -180,7 +180,10 @@ router.post('/forgot', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'Missing email' })
   try {
     const user = await User_1.default.findOne({ email })
-    if (!user) return res.json({ ok: true })
+    if (!user) {
+      console.log('[auth/forgot] user not found, not sending email:', email)
+      return res.json({ ok: true })
+    }
     // Issue reset token (random) valid 30 minutes
     const token =
       Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
@@ -197,6 +200,21 @@ router.post('/forgot', async (req, res) => {
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
         : undefined,
     })
+    try {
+      await transporter.verify()
+      console.log(
+        '[SMTP] verify ok host=%s port=%d secure=%s user=%s',
+        process.env.SMTP_HOST,
+        port,
+        port === 465,
+        String(process.env.SMTP_USER || '')
+      )
+    } catch (verr) {
+      console.error('[SMTP] verify failed:', verr?.message || verr)
+      return res
+        .status(500)
+        .json({ error: 'SMTP verify failed: ' + (verr?.message || 'unknown') })
+    }
     const fromEnv =
       process.env.MAIL_FROM || 'no-reply@crackthecodemultiplayer.com'
     const from = fromEnv
@@ -210,12 +228,17 @@ router.post('/forgot', async (req, res) => {
       (process.env.WEB_RESET_LINK_BASE ||
         'https://crackthecodemultiplayer.com/reset') +
       `?token=${encodeURIComponent(token)}`
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from,
       to: email,
       subject: 'Reset your password',
       text: `Tap to reset your password: ${appLink}\nIf that doesn't work, use: ${webLink}\nThis link expires in 30 minutes.`,
     })
+    console.log(
+      '[SMTP] sent reset email to %s messageId=%s',
+      email,
+      info?.messageId
+    )
     return res.json({ ok: true })
   } catch (e) {
     const msg = e && e.message ? e.message : 'Failed to send reset email'
