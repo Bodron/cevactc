@@ -5,7 +5,19 @@ var __importDefault =
     return mod && mod.__esModule ? mod : { default: mod }
   }
 Object.defineProperty(exports, '__esModule', { value: true })
-require('dotenv/config')
+const path = require('path')
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') })
+if (!process.env.MONGO_URI) {
+  console.warn(
+    '[env] MONGO_URI nu este setat – se folosește fallback-ul local!'
+  )
+}
+console.log('[config] PORT=', process.env.PORT || 4000)
+console.log(
+  '[config] MONGO_URI=',
+  (process.env.MONGO_URI || '').replace(/\/\/.*@/, '//***@')
+) // ascunde user:pass
+
 const express_1 = __importDefault(require('express'))
 const http_1 = __importDefault(require('http'))
 const cors_1 = __importDefault(require('cors'))
