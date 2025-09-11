@@ -45,7 +45,7 @@ app.get('/api/realtime/health', (_req, res) => {
   }
 })
 // Deep-link redirector: opens app via custom scheme from a HTTPS link
-app.get('/link/reset', (req, res) => {
+app.get(['/link/reset', '/reset'], (req, res) => {
   try {
     const token = encodeURIComponent(String(req.query.token || ''))
     const appUrl = `crackthecode://reset?token=${token}`
