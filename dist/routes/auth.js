@@ -263,9 +263,15 @@ router.post('/forgot', async (req, res) => {
       from,
       to: email,
       subject: 'Reset your password',
-      text: `Tap to reset your password: ${appLink}`,
+      text: `Tap to reset your password: ${webLink}\nIf installed, the app will open directly.`,
       html: `
-        <p>Tap to reset your password: <a href="${appLink}">Open in app</a></p>
+        <p>Tap to reset your password:</p>
+        <p>
+          <a href="${webLink}">Open in app</a>
+          <br/>
+          <small>If the app doesn't open, copy this link into your browser:</small><br/>
+          <a href="${appLink}">crackthecode://reset</a>
+        </p>
         <p>This link expires in 30 minutes.</p>
       `,
     })

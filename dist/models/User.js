@@ -73,6 +73,8 @@ const UserSchema = new mongoose_1.Schema(
     matches: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },
     losses: { type: Number, default: 0 },
+    // Economy
+    coins: { type: Number, default: 0 },
     // Compliance fields
     acceptedTerms: { type: Boolean, default: false },
     acceptedAt: { type: Date, default: null },

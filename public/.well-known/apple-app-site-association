@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "9474MTRLF8.ro.bcmenu.app",
+        "paths": ["/reset", "/reset/*"]
+      }
+    ]
+  }
+}
+
+
