@@ -257,20 +257,17 @@ router.post('/forgot', async (req, res) => {
       `?token=${encodeURIComponent(token)}`
     const webLink =
       (process.env.WEB_RESET_LINK_BASE ||
-        'https://crackthecodemultiplayer.com/reset') +
+        'https://crackthecodemultiplayer.com/link/reset') +
       `?token=${encodeURIComponent(token)}`
     const info = await sendWithRetry({
       from,
       to: email,
       subject: 'Reset your password',
-      text: `Tap to reset your password: ${webLink}\nIf installed, the app will open directly.`,
+      text: `Tap to reset your password: ${webLink}\nThis opens the app directly.`,
       html: `
         <p>Tap to reset your password:</p>
         <p>
           <a href="${webLink}">Open in app</a>
-          <br/>
-          <small>If the app doesn't open, copy this link into your browser:</small><br/>
-          <a href="${appLink}">crackthecode://reset</a>
         </p>
         <p>This link expires in 30 minutes.</p>
       `,

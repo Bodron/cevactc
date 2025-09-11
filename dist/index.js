@@ -44,6 +44,30 @@ app.get('/api/realtime/health', (_req, res) => {
     res.status(500).json({ status: 'error' })
   }
 })
+// Deep-link redirector: opens app via custom scheme from a HTTPS link
+app.get('/link/reset', (req, res) => {
+  try {
+    const token = encodeURIComponent(String(req.query.token || ''))
+    const appUrl = `crackthecode://reset?token=${token}`
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Open in app</title>
+  <style>body{background:#000;color:#fff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px}a{color:#8ab4ff}</style>
+  <script>window.location.href='${appUrl}';setTimeout(function(){document.getElementById('fb').style.display='block';},1500);</script>
+</head>
+<body>
+  <h3>Opening CrackTheCode…</h3>
+  <p id="fb" style="display:none">If nothing happens, copy this into the app: <code>${appUrl}</code></p>
+</body>
+</html>`)
+  } catch (_) {
+    res.status(400).send('Invalid link')
+  }
+})
 app.use('/api/auth', auth_1.default)
 app.use('/api/leaderboard', leaderboard_1.default)
 app.use('/api/seasons', seasons_1.default)
