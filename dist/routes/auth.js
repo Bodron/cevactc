@@ -195,10 +195,18 @@ router.post('/forgot', async (req, res) => {
     const transporter = nodemailer_1.default.createTransport({
       host: process.env.SMTP_HOST,
       port,
-      secure: port === 465, // use SSL for 465, STARTTLS for 587
+      secure: port === 465, // SSL for 465, STARTTLS for 587
+      requireTLS: port === 587,
+      pool: true,
+      maxConnections: 2,
+      maxMessages: 50,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
       auth: process.env.SMTP_USER
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
         : undefined,
+      tls: { ciphers: 'TLSv1.2' },
     })
     try {
       await transporter.verify()
@@ -228,14 +236,39 @@ router.post('/forgot', async (req, res) => {
       (process.env.WEB_RESET_LINK_BASE ||
         'https://crackthecodemultiplayer.com/reset') +
       `?token=${encodeURIComponent(token)}`
-    const info = await transporter.sendMail({
+    async function sendWithRetry(mailOptions, attempts = 3) {
+      let lastErr
+      for (let i = 0; i < attempts; i++) {
+        try {
+          return await transporter.sendMail(mailOptions)
+        } catch (e) {
+          lastErr = e
+          const code = e?.responseCode
+          const msg = String(e?.message || '')
+          const isTemp =
+            code === 421 ||
+            code === 450 ||
+            code === 451 ||
+            code === 452 ||
+            /\b421\b|4\.7\.0|ETIMEDOUT|ECONNECTION|EAI_AGAIN/i.test(msg)
+          if (isTemp && i < attempts - 1) {
+            const delay = [1000, 2500, 5000][i] || 2000
+            await new Promise((r) => setTimeout(r, delay))
+            continue
+          }
+          break
+        }
+      }
+      throw lastErr
+    }
+
+    const info = await sendWithRetry({
       from,
       to: email,
       subject: 'Reset your password',
-      text: `Tap to reset your password: ${appLink}\nIf that doesn't work, use: ${webLink}\nThis link expires in 30 minutes.`,
+      text: `Tap to reset your password: ${appLink}`,
       html: `
         <p>Tap to reset your password: <a href="${appLink}">Open in app</a></p>
-        <p>If that doesn't work, use this fallback: <a href="${webLink}">${webLink}</a></p>
         <p>This link expires in 30 minutes.</p>
       `,
     })
