@@ -56,12 +56,21 @@ app.get(['/link/reset', '/reset'], (req, res) => {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Open in app</title>
-  <style>body{background:#000;color:#fff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px}a{color:#8ab4ff}</style>
-  <script>window.location.href='${appUrl}';setTimeout(function(){document.getElementById('fb').style.display='block';},1500);</script>
+  <style>body{background:#000;color:#fff;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px;text-align:center}a.btn{display:inline-block;margin-top:16px;padding:12px 18px;border:1px solid rgba(255,255,255,.25);border-radius:12px;color:#fff;text-decoration:none;background:rgba(255,255,255,.06)}</style>
+  <script>
+    function openApp(){ window.location.href='${appUrl}'; }
+    document.addEventListener('DOMContentLoaded', function(){
+      // try auto-open; some in-app browsers blochează, dar păstrăm butonul activ
+      openApp();
+      setTimeout(openApp, 800);
+      setTimeout(function(){ document.getElementById('fb').style.display='block'; }, 1200);
+    });
+  </script>
 </head>
 <body>
   <h3>Opening CrackTheCode…</h3>
-  <p id="fb" style="display:none">If nothing happens, copy this into the app: <code>${appUrl}</code></p>
+  <a class="btn" href="${appUrl}">Open in app now</a>
+  <p id="fb" style="display:none;margin-top:10px;opacity:.8">If nothing happens, tap the button above.</p>
 </body>
 </html>`)
   } catch (_) {
