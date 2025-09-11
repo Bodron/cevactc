@@ -172,6 +172,60 @@ router.patch('/avatar', auth_2.requireAuth, async (req, res) => {
   }
 })
 exports.default = router
+
+// --- Mailer singleton (reuse pooled transporter across requests) ---
+const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com'
+const smtpPort = Number(process.env.SMTP_PORT || 587)
+const mailTransporter = nodemailer_1.default.createTransport({
+  host: smtpHost,
+  port: smtpPort,
+  secure: smtpPort === 465,
+  requireTLS: smtpPort === 587,
+  pool: true,
+  maxConnections: 2,
+  maxMessages: 50,
+  rateDelta: 60000,
+  rateLimit: 15,
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 20000,
+  family: 4,
+  name: 'mail.crackthecodemultiplayer.com',
+  auth: process.env.SMTP_USER
+    ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    : undefined,
+  tls: {
+    servername: smtpHost,
+    minVersion: 'TLSv1.2',
+    ciphers: 'TLSv1.2',
+  },
+})
+
+async function sendWithRetry(mailOptions, attempts = 5) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await mailTransporter.sendMail(mailOptions)
+    } catch (e) {
+      const msg = String(e?.message || '')
+      const code = e?.responseCode
+      const isTemp =
+        code === 421 ||
+        code === 450 ||
+        code === 451 ||
+        code === 452 ||
+        /\b421\b|4\.7\.0|ETIMEDOUT|ECONNECTION|EAI_AGAIN/i.test(msg)
+      if (isTemp && i < attempts - 1) {
+        const wait = Math.min(30000, 2000 * (i + 1))
+        await new Promise((r) => setTimeout(r, wait))
+        continue
+      }
+      lastErr = e
+      break
+    }
+  }
+  throw lastErr
+}
 // Forgot password: generate a temporary password and email it
 router.post('/forgot', async (req, res) => {
   const email = String(req.body?.email || '')
@@ -191,38 +245,7 @@ router.post('/forgot', async (req, res) => {
     user.resetExpires = new Date(Date.now() + 30 * 60 * 1000)
     await user.save()
 
-    const port = Number(process.env.SMTP_PORT || 587)
-    const transporter = nodemailer_1.default.createTransport({
-      host: process.env.SMTP_HOST,
-      port,
-      secure: port === 465, // SSL for 465, STARTTLS for 587
-      requireTLS: port === 587,
-      pool: true,
-      maxConnections: 2,
-      maxMessages: 50,
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 20000,
-      auth: process.env.SMTP_USER
-        ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-        : undefined,
-      tls: { ciphers: 'TLSv1.2' },
-    })
-    try {
-      await transporter.verify()
-      console.log(
-        '[SMTP] verify ok host=%s port=%d secure=%s user=%s',
-        process.env.SMTP_HOST,
-        port,
-        port === 465,
-        String(process.env.SMTP_USER || '')
-      )
-    } catch (verr) {
-      console.error('[SMTP] verify failed:', verr?.message || verr)
-      return res
-        .status(500)
-        .json({ error: 'SMTP verify failed: ' + (verr?.message || 'unknown') })
-    }
+    // use shared pooled transporter; no per-request verify()
     const fromEnv =
       process.env.MAIL_FROM || 'no-reply@crackthecodemultiplayer.com'
     const from = fromEnv
@@ -236,32 +259,6 @@ router.post('/forgot', async (req, res) => {
       (process.env.WEB_RESET_LINK_BASE ||
         'https://crackthecodemultiplayer.com/reset') +
       `?token=${encodeURIComponent(token)}`
-    async function sendWithRetry(mailOptions, attempts = 3) {
-      let lastErr
-      for (let i = 0; i < attempts; i++) {
-        try {
-          return await transporter.sendMail(mailOptions)
-        } catch (e) {
-          lastErr = e
-          const code = e?.responseCode
-          const msg = String(e?.message || '')
-          const isTemp =
-            code === 421 ||
-            code === 450 ||
-            code === 451 ||
-            code === 452 ||
-            /\b421\b|4\.7\.0|ETIMEDOUT|ECONNECTION|EAI_AGAIN/i.test(msg)
-          if (isTemp && i < attempts - 1) {
-            const delay = [1000, 2500, 5000][i] || 2000
-            await new Promise((r) => setTimeout(r, delay))
-            continue
-          }
-          break
-        }
-      }
-      throw lastErr
-    }
-
     const info = await sendWithRetry({
       from,
       to: email,
