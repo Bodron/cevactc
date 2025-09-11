@@ -233,6 +233,11 @@ router.post('/forgot', async (req, res) => {
       to: email,
       subject: 'Reset your password',
       text: `Tap to reset your password: ${appLink}\nIf that doesn't work, use: ${webLink}\nThis link expires in 30 minutes.`,
+      html: `
+        <p>Tap to reset your password: <a href="${appLink}">Open in app</a></p>
+        <p>If that doesn't work, use this fallback: <a href="${webLink}">${webLink}</a></p>
+        <p>This link expires in 30 minutes.</p>
+      `,
     })
     console.log(
       '[SMTP] sent reset email to %s messageId=%s',
