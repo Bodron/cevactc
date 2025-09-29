@@ -413,16 +413,12 @@ router.post(
     try {
       const reward = await Reward.findById(req.params.id)
       if (!reward) return res.status(404).json({ error: 'Reward not found' })
-      // Prevent assigning before expiry window
+      // Allow assigning as soon as the season ENDS (no 15 day wait for admin assign)
       const season = await Season.findOne({ name: reward.seasonName }).lean()
       if (season?.endAt) {
-        const cutoff = new Date(
-          new Date(season.endAt).getTime() + 15 * 24 * 60 * 60 * 1000
-        )
-        if (Date.now() < cutoff.getTime()) {
-          return res
-            .status(409)
-            .json({ error: 'Claim window active – try after 15 days' })
+        const endsAt = new Date(season.endAt).getTime()
+        if (Date.now() < endsAt) {
+          return res.status(409).json({ error: 'Season not ended yet' })
         }
       }
       const gift = await GiftCard.findOne({ assignedToRewardId: null }).sort({
