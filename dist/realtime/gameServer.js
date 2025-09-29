@@ -192,27 +192,33 @@ function endMatch(io, match, winnerIndex) {
       const incB = { total: 1 }
       incA[modeKey] = 1
       incB[modeKey] = 1
+      const devA =
+        io.sockets.sockets.get(winner.socketId)?.data?.deviceId || null
+      const devB =
+        io.sockets.sockets.get(loser.socketId)?.data?.deviceId || null
+      const filterA = devA
+        ? { deviceId: devA, day }
+        : { userId: winner.userId, day }
+      const filterB = devB
+        ? { deviceId: devB, day }
+        : { userId: loser.userId, day }
       DailyPlay_1.default
         .updateOne(
+          filterA,
           {
-            userId: winner.userId,
-            deviceId:
-              io.sockets.sockets.get(winner.socketId)?.data?.deviceId || null,
-            day,
+            $inc: incA,
+            $setOnInsert: { userId: winner.userId, deviceId: devA },
           },
-          { $inc: incA },
           { upsert: true }
         )
         .catch(() => {})
       DailyPlay_1.default
         .updateOne(
+          filterB,
           {
-            userId: loser.userId,
-            deviceId:
-              io.sockets.sockets.get(loser.socketId)?.data?.deviceId || null,
-            day,
+            $inc: incB,
+            $setOnInsert: { userId: loser.userId, deviceId: devB },
           },
-          { $inc: incB },
           { upsert: true }
         )
         .catch(() => {})
@@ -249,27 +255,33 @@ function endMatch(io, match, winnerIndex) {
       try {
         const day = new Date().toISOString().slice(0, 10)
         const inc = { ranked: 1, total: 1 }
+        const devA =
+          io.sockets.sockets.get(winner.socketId)?.data?.deviceId || null
+        const devB =
+          io.sockets.sockets.get(loser.socketId)?.data?.deviceId || null
+        const filterA = devA
+          ? { deviceId: devA, day }
+          : { userId: winner.userId, day }
+        const filterB = devB
+          ? { deviceId: devB, day }
+          : { userId: loser.userId, day }
         DailyPlay_1.default
           .updateOne(
+            filterA,
             {
-              userId: winner.userId,
-              deviceId:
-                io.sockets.sockets.get(winner.socketId)?.data?.deviceId || null,
-              day,
+              $inc: inc,
+              $setOnInsert: { userId: winner.userId, deviceId: devA },
             },
-            { $inc: inc },
             { upsert: true }
           )
           .catch(() => {})
         DailyPlay_1.default
           .updateOne(
+            filterB,
             {
-              userId: loser.userId,
-              deviceId:
-                io.sockets.sockets.get(loser.socketId)?.data?.deviceId || null,
-              day,
+              $inc: inc,
+              $setOnInsert: { userId: loser.userId, deviceId: devB },
             },
-            { $inc: inc },
             { upsert: true }
           )
           .catch(() => {})
