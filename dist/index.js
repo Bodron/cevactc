@@ -32,6 +32,7 @@ const gameServer_1 = require('./realtime/gameServer')
 const Season_1 = __importDefault(require('./models/Season'))
 const SeasonResult_1 = __importDefault(require('./models/SeasonResult'))
 const User_1 = __importDefault(require('./models/User'))
+const UserModel = require('./models/User')
 const DailyPlay_1 = __importDefault(require('./models/DailyPlay'))
 const app = (0, express_1.default)()
 const rateLimit = require('./middleware/rateLimit')
@@ -121,6 +122,23 @@ async function start() {
       try {
         const TOP_N = 250
         const MIN_ELO_FOR_DI = 1900
+        // Ensure division tiers/ranks reflect current ELO for any users not Top250
+        try {
+          const { computeDivision } = UserModel
+          const cursor = User_1.default
+            .find({ divisionTier: { $ne: 'Top250' } }, { _id: 1, eloPoints: 1 })
+            .lean()
+            .cursor()
+          for await (const u of cursor) {
+            try {
+              const div = computeDivision(u.eloPoints || 0)
+              await User_1.default.updateOne(
+                { _id: u._id, divisionTier: { $ne: 'Top250' } },
+                { $set: { divisionTier: div.tier, divisionRank: div.rank } }
+              )
+            } catch (_) {}
+          }
+        } catch (_) {}
         // Candidates are only Diamond I (or equivalent by ELO)
         const candidates = await User_1.default
           .find(
