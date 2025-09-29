@@ -116,19 +116,29 @@ async function start() {
     await mongoose_1.default.connect(MONGO_URI)
     console.log('Connected to MongoDB')
     // background job: finalize seasons automatically when ended and not snapshotDone
-    // background job: enforce Top250 division (exactly 250 players)
+    // background job: enforce Top250 division (up to 250 players), ONLY for Diamond I
     setInterval(async () => {
       try {
         const TOP_N = 250
-        const users = await User_1.default
-          .find({}, { _id: 1 })
+        const MIN_ELO_FOR_DI = 1900
+        // Candidates are only Diamond I (or equivalent by ELO)
+        const candidates = await User_1.default
+          .find(
+            {
+              $or: [
+                { divisionTier: 'Diamond', divisionRank: 'I' },
+                { eloPoints: { $gte: MIN_ELO_FOR_DI } },
+              ],
+            },
+            { _id: 1, eloPoints: 1 }
+          )
           .sort({ eloPoints: -1, updatedAt: 1 })
           .limit(TOP_N)
           .lean()
 
         let place = 1
         const topIds = []
-        for (const u of users) {
+        for (const u of candidates) {
           topIds.push(u._id)
           await User_1.default.updateOne(
             { _id: u._id },
@@ -137,10 +147,31 @@ async function start() {
           place++
         }
 
-        await User_1.default.updateMany(
-          { _id: { $nin: topIds }, divisionTier: 'Top250' },
-          { $set: { divisionTier: 'Diamond', elitePlace: null } }
-        )
+        // Demote users that are marked Top250 but are no longer in the list
+        if (topIds.length > 0) {
+          await User_1.default.updateMany(
+            { _id: { $nin: topIds }, divisionTier: 'Top250' },
+            {
+              $set: {
+                divisionTier: 'Diamond',
+                divisionRank: 'I',
+                elitePlace: null,
+              },
+            }
+          )
+        } else {
+          // If no one qualifies, clear all Top250 marks
+          await User_1.default.updateMany(
+            { divisionTier: 'Top250' },
+            {
+              $set: {
+                divisionTier: 'Diamond',
+                divisionRank: 'I',
+                elitePlace: null,
+              },
+            }
+          )
+        }
       } catch (_) {}
     }, 60 * 1000)
     // Periodic cleanup: remove DailyPlay docs older than 2 days
