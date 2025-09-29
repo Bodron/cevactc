@@ -89,19 +89,28 @@ const UserSchema = new mongoose_1.Schema(
 )
 exports.TIERS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond']
 exports.RANKS = ['IV', 'III', 'II', 'I']
+// Tier starting thresholds (points at which you become IV for that tier)
+const TIER_START = {
+  Bronze: 0,
+  Silver: 401,
+  Gold: 801,
+  Platinum: 1201,
+  Diamond: 1601,
+}
 function computeDivision(eloPoints) {
-  const steps = Math.floor(eloPoints / 100)
-  const tierIndex = Math.min(
-    exports.TIERS.length - 1,
-    Math.floor(steps / exports.RANKS.length)
-  )
-  const rankIndexFromLow = steps % exports.RANKS.length // 0..3 maps to ['IV','III','II','I']
-  const tier = exports.TIERS[tierIndex]
-  let rank = exports.RANKS[Math.min(rankIndexFromLow, exports.RANKS.length - 1)]
-  // Keep Diamond I for all ELO >= 1900 unless explicitly promoted to Top250
-  if (tier === 'Diamond' && eloPoints >= 1900) {
-    rank = 'I'
-  }
+  // Determine tier by threshold
+  let tier = 'Bronze'
+  if (eloPoints >= TIER_START.Diamond) tier = 'Diamond'
+  else if (eloPoints >= TIER_START.Platinum) tier = 'Platinum'
+  else if (eloPoints >= TIER_START.Gold) tier = 'Gold'
+  else if (eloPoints >= TIER_START.Silver) tier = 'Silver'
+
+  // Offset inside the tier
+  const start = TIER_START[tier]
+  const offset = Math.max(0, Math.floor(eloPoints - start))
+  // Every 100 points promotes one rank: 0-99 -> IV, 100-199 -> III, 200-299 -> II, 300+ -> I
+  let rankIdx = Math.min(3, Math.floor(offset / 100))
+  const rank = exports.RANKS[rankIdx]
   return { tier, rank }
 }
 UserSchema.pre('save', function (next) {

@@ -121,7 +121,6 @@ async function start() {
     setInterval(async () => {
       try {
         const TOP_N = 250
-        const MIN_ELO_FOR_DI = 1900
         // Ensure division tiers/ranks reflect current ELO for any users not Top250
         try {
           const { computeDivision } = UserModel
@@ -139,15 +138,18 @@ async function start() {
             } catch (_) {}
           }
         } catch (_) {}
-        // Candidates are only Diamond I (or equivalent by ELO)
+        // Dacă Top250 are mai puțin de 250, ia Diamond I cu ELO >= 2001.
+        const currentTopCount = await User_1.default.countDocuments({
+          divisionTier: 'Top250',
+        })
+        const minEloToEnter = currentTopCount < TOP_N ? 2001 : 0
+        // Candidați: Diamond I; dacă nu e plin Top250, filtrați la ELO >= 2001; altfel toți Diamond I.
         const candidates = await User_1.default
           .find(
-            {
-              $or: [
-                { divisionTier: 'Diamond', divisionRank: 'I' },
-                { eloPoints: { $gte: MIN_ELO_FOR_DI } },
-              ],
-            },
+            Object.assign(
+              { divisionTier: 'Diamond', divisionRank: 'I' },
+              minEloToEnter > 0 ? { eloPoints: { $gte: minEloToEnter } } : {}
+            ),
             { _id: 1, eloPoints: 1 }
           )
           .sort({ eloPoints: -1, updatedAt: 1 })
