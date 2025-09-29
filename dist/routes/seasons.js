@@ -10,10 +10,13 @@ const Season_1 = __importDefault(require('../models/Season'))
 const SeasonResult_1 = __importDefault(require('../models/SeasonResult'))
 const User_1 = __importDefault(require('../models/User'))
 const router = (0, express_1.Router)()
+const rateLimit = require('../middleware/rateLimit')
+const strictLimiter = rateLimit.sensitiveLimiter({ max: 15 })
+const idem = rateLimit.idempotency()
 const auth_1 = require('../middleware/auth')
 
 // Public: get active season and pause status
-router.get('/current', async (_req, res) => {
+router.get('/current', strictLimiter, async (_req, res) => {
   try {
     const now = new Date()
     const season = await Season_1.default
@@ -37,30 +40,48 @@ router.get('/current', async (_req, res) => {
 })
 
 // Admin endpoints (protect behind reverse proxy / admin project)
-router.post('/', auth_1.requireAuth, auth_1.requireAdmin, async (req, res) => {
-  try {
-    const user = await User_1.default.findById(req.userId)
-    if (!user || (user.role || 'User') !== 'Admin')
-      return res.status(403).json({ error: 'Forbidden' })
-    const { name, startAt, endAt, payoutUntil } = req.body || {}
-    if (!name || !startAt || !endAt)
-      return res.status(400).json({ error: 'Missing fields' })
-    const s = await Season_1.default.create({
-      name,
-      startAt: new Date(startAt),
-      endAt: new Date(endAt),
-      payoutUntil: payoutUntil ? new Date(payoutUntil) : null,
-    })
-    return res.json(s)
-  } catch (e) {
-    return res.status(500).json({ error: 'Failed to create season' })
+router.post(
+  '/',
+  strictLimiter,
+  auth_1.requireAuth,
+  auth_1.requireAdmin,
+  idem,
+  async (req, res) => {
+    try {
+      const user = await User_1.default.findById(req.userId)
+      if (!user || (user.role || 'User') !== 'Admin')
+        return res.status(403).json({ error: 'Forbidden' })
+      const { name, startAt, endAt, payoutUntil, numberOfWinners } =
+        req.body || {}
+      if (!name || !startAt || !endAt)
+        return res.status(400).json({ error: 'Missing fields' })
+      const end = new Date(endAt)
+      const payout = payoutUntil
+        ? new Date(payoutUntil)
+        : new Date(end.getTime() + 15 * 24 * 60 * 60 * 1000)
+      const s = await Season_1.default.create({
+        name,
+        startAt: new Date(startAt),
+        endAt: end,
+        payoutUntil: payout,
+        numberOfWinners: Math.max(
+          1,
+          Math.min(100, Number(numberOfWinners || 1))
+        ),
+      })
+      return res.json(s)
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to create season' })
+    }
   }
-})
+)
 
 router.post(
   '/finalize',
+  strictLimiter,
   auth_1.requireAuth,
   auth_1.requireAdmin,
+  idem,
   async (req, res) => {
     try {
       const user = await User_1.default.findById(req.userId)
@@ -98,8 +119,10 @@ router.post(
 
 router.post(
   '/reset',
+  strictLimiter,
   auth_1.requireAuth,
   auth_1.requireAdmin,
+  idem,
   async (req, res) => {
     try {
       const user = await User_1.default.findById(req.userId)

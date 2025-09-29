@@ -73,6 +73,8 @@ const UserSchema = new mongoose_1.Schema(
     matches: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },
     losses: { type: Number, default: 0 },
+    // Live Top 250 placement (1..250). Null if not in Top250
+    elitePlace: { type: Number, default: null, index: true },
     // Economy
     coins: { type: Number, default: 0 },
     // Compliance fields
@@ -95,12 +97,19 @@ function computeDivision(eloPoints) {
   )
   const rankIndexFromLow = steps % exports.RANKS.length // 0..3 maps to ['IV','III','II','I']
   const tier = exports.TIERS[tierIndex]
-  const rank =
-    exports.RANKS[Math.min(rankIndexFromLow, exports.RANKS.length - 1)]
+  let rank = exports.RANKS[Math.min(rankIndexFromLow, exports.RANKS.length - 1)]
+  // Keep Diamond I for all ELO >= 1900 unless explicitly promoted to Top250
+  if (tier === 'Diamond' && eloPoints >= 1900) {
+    rank = 'I'
+  }
   return { tier, rank }
 }
 UserSchema.pre('save', function (next) {
   const self = this
+  // Do not override explicit Top250 assignment here; it is managed by a separate job
+  if (self.divisionTier === 'Top250') {
+    return next()
+  }
   const { tier, rank } = computeDivision(self.eloPoints)
   self.divisionTier = tier
   self.divisionRank = rank

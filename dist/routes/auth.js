@@ -14,6 +14,10 @@ const auth_2 = require('../middleware/auth')
 const nodemailer_1 = __importDefault(require('nodemailer'))
 const https_1 = require('https')
 const router = (0, express_1.Router)()
+const rateLimit = require('../middleware/rateLimit')
+// Limits for auth endpoints
+const authLimiter = rateLimit.sensitiveLimiter({ max: 8 })
+const idem = rateLimit.idempotency()
 function normalizeEmail(raw) {
   try {
     return String(raw || '')
@@ -30,7 +34,7 @@ function isValidEmail(email) {
   return re.test(email)
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, idem, async (req, res) => {
   try {
     const {
       email,
@@ -85,7 +89,7 @@ router.post('/register', async (req, res) => {
     return res.status(500).json({ error: 'Failed to register' })
   }
 })
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, idem, async (req, res) => {
   try {
     const { email, password } = req.body
     const emailNorm = normalizeEmail(email)
@@ -153,24 +157,30 @@ router.get('/me/stats', auth_2.requireAuth, async (req, res) => {
 })
 
 // Update avatar asset path for current user
-router.patch('/avatar', auth_2.requireAuth, async (req, res) => {
-  try {
-    const userId = req.userId
-    const avatarAsset = (req.body?.avatarAsset || '').toString()
-    if (!avatarAsset) {
-      return res.status(400).json({ error: 'Missing avatarAsset' })
+router.patch(
+  '/avatar',
+  authLimiter,
+  auth_2.requireAuth,
+  idem,
+  async (req, res) => {
+    try {
+      const userId = req.userId
+      const avatarAsset = (req.body?.avatarAsset || '').toString()
+      if (!avatarAsset) {
+        return res.status(400).json({ error: 'Missing avatarAsset' })
+      }
+      const user = await User_1.default.findByIdAndUpdate(
+        userId,
+        { avatarAsset },
+        { new: true }
+      )
+      if (!user) return res.status(404).json({ error: 'Not found' })
+      return res.json({ ok: true, avatarAsset: user.avatarAsset || null })
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to update avatar' })
     }
-    const user = await User_1.default.findByIdAndUpdate(
-      userId,
-      { avatarAsset },
-      { new: true }
-    )
-    if (!user) return res.status(404).json({ error: 'Not found' })
-    return res.json({ ok: true, avatarAsset: user.avatarAsset || null })
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to update avatar' })
   }
-})
+)
 exports.default = router
 
 // --- Mailer singleton (reuse pooled transporter across requests) ---
@@ -227,7 +237,7 @@ async function sendWithRetry(mailOptions, attempts = 5) {
   throw lastErr
 }
 // Forgot password: generate a temporary password and email it
-router.post('/forgot', async (req, res) => {
+router.post('/forgot', authLimiter, idem, async (req, res) => {
   const email = String(req.body?.email || '')
     .trim()
     .toLowerCase()
@@ -238,11 +248,14 @@ router.post('/forgot', async (req, res) => {
       console.log('[auth/forgot] user not found, not sending email:', email)
       return res.json({ ok: true })
     }
-    // Issue reset token (random) valid 30 minutes
+    // Invalidate any previous token, then issue a new one (expires in 15 minutes)
+    user.resetToken = null
+    user.resetExpires = null
+    // Issue reset token (random) valid 15 minutes
     const token =
       Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
     user.resetToken = token
-    user.resetExpires = new Date(Date.now() + 30 * 60 * 1000)
+    user.resetExpires = new Date(Date.now() + 15 * 60 * 1000)
     await user.save()
 
     // use shared pooled transporter; no per-request verify()
@@ -266,7 +279,7 @@ router.post('/forgot', async (req, res) => {
       text: `Tap to reset your password: ${webLink}`,
       html: `
         <p>Tap to reset your password: <a href="${webLink}">Open in app</a></p>
-        <p>This link expires in 30 minutes.</p>
+        <p>This link expires in 15 minutes and can be used only once.</p>
       `,
     })
     console.log(
@@ -281,40 +294,52 @@ router.post('/forgot', async (req, res) => {
   }
 })
 // Change password with old + new
-router.post('/change-password', auth_2.requireAuth, async (req, res) => {
-  try {
-    const { oldPassword, newPassword } = req.body || {}
-    if (!oldPassword || !newPassword) {
-      return res.status(400).json({ error: 'Missing fields' })
+router.post(
+  '/change-password',
+  authLimiter,
+  auth_2.requireAuth,
+  idem,
+  async (req, res) => {
+    try {
+      const { oldPassword, newPassword } = req.body || {}
+      if (!oldPassword || !newPassword) {
+        return res.status(400).json({ error: 'Missing fields' })
+      }
+      const user = await User_1.default.findById(req.userId)
+      if (!user) return res.status(404).json({ error: 'Not found' })
+      const ok = await bcryptjs_1.default.compare(
+        String(oldPassword),
+        user.passwordHash
+      )
+      if (!ok) return res.status(401).json({ error: 'Invalid password' })
+      user.passwordHash = await bcryptjs_1.default.hash(String(newPassword), 10)
+      await user.save()
+      return res.json({ ok: true })
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to change password' })
     }
-    const user = await User_1.default.findById(req.userId)
-    if (!user) return res.status(404).json({ error: 'Not found' })
-    const ok = await bcryptjs_1.default.compare(
-      String(oldPassword),
-      user.passwordHash
-    )
-    if (!ok) return res.status(401).json({ error: 'Invalid password' })
-    user.passwordHash = await bcryptjs_1.default.hash(String(newPassword), 10)
-    await user.save()
-    return res.json({ ok: true })
-  } catch (e) {
-    return res.status(500).json({ error: 'Failed to change password' })
   }
-})
+)
 
 // Change password using temporary password, without login
-router.post('/change-password-temp', async (req, res) => {
+router.post('/change-password-temp', authLimiter, idem, async (req, res) => {
   try {
     const { token, newPassword } = req.body || {}
     if (!token || !newPassword) {
       return res.status(400).json({ error: 'Missing fields' })
     }
     const user = await User_1.default.findOne({ resetToken: token })
-    if (
-      !user ||
-      !user.resetExpires ||
-      user.resetExpires.getTime() < Date.now()
-    ) {
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired token' })
+    }
+    // Reject if expired or token already cleared
+    if (!user.resetExpires || user.resetExpires.getTime() < Date.now()) {
+      // Be explicit: clear any stale token
+      user.resetToken = null
+      user.resetExpires = null
+      try {
+        await user.save()
+      } catch (_) {}
       return res.status(400).json({ error: 'Invalid or expired token' })
     }
     user.passwordHash = await bcryptjs_1.default.hash(String(newPassword), 10)

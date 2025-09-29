@@ -15,6 +15,18 @@ const MatchHistory_1 = __importDefault(require('../models/MatchHistory'))
 const DailyPlay_1 = __importDefault(require('../models/DailyPlay'))
 const Season_1 = __importDefault(require('../models/Season'))
 const THIRTY_SECONDS = 30000
+const rateLimitSocket = require('./rateLimitSocket')
+// Socket-level limiters:
+const allowEnqueueRanked = rateLimitSocket.createLimiter({
+  windowMs: 4000,
+  max: 2,
+})
+const allowEnqueueCasual = rateLimitSocket.createLimiter({
+  windowMs: 4000,
+  max: 2,
+})
+const allowSetSecret = rateLimitSocket.createLimiter({ windowMs: 2000, max: 5 })
+const allowGuess = rateLimitSocket.createLimiter({ windowMs: 2000, max: 5 })
 const matchmakingQueue = []
 const casualQueue = []
 const socketIdToUserId = new Map()
@@ -417,6 +429,10 @@ function attachGameServer(io) {
       } catch (_) {}
     })
     socket.on('ranked.enqueue', async () => {
+      if (!allowEnqueueRanked(socket, 'ranked.enqueue')) {
+        socket.emit('match.error', { error: 'too_many_requests' })
+        return
+      }
       // Prevent ranked during pause windows
       const now = new Date()
       const active = await Season_1.default
@@ -459,6 +475,7 @@ function attachGameServer(io) {
     })
 
     socket.on('casual.enqueue', async () => {
+      if (!allowEnqueueCasual(socket, 'casual.enqueue')) return
       if (casualQueue.includes(socket.id)) return
       casualQueue.push(socket.id)
       // try to pair two real players first
@@ -505,6 +522,7 @@ function attachGameServer(io) {
       }, 700)
     })
     socket.on('match.setSecret', (payload) => {
+      if (!allowSetSecret(socket, 'match.setSecret')) return
       const match = findMatchBySocket(socket.id)
       if (!match || match.isFinished) return
       if (!(0, gameLogic_1.isValidCode)(payload?.secret)) {
@@ -535,6 +553,7 @@ function attachGameServer(io) {
       }
     })
     socket.on('match.guess', (payload) => {
+      if (!allowGuess(socket, 'match.guess')) return
       const match = findMatchBySocket(socket.id)
       if (!match || match.isFinished) return
       if (match.waitingForSecrets || match.countdownEndsAtMs <= 0) {

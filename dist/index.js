@@ -26,14 +26,20 @@ const mongoose_1 = __importDefault(require('mongoose'))
 const auth_1 = __importDefault(require('./routes/auth'))
 const leaderboard_1 = __importDefault(require('./routes/leaderboard'))
 const seasons_1 = __importDefault(require('./routes/seasons'))
+const rewards_1 = __importDefault(require('./routes/rewards'))
 const notifications_1 = __importDefault(require('./routes/notifications'))
 const gameServer_1 = require('./realtime/gameServer')
 const Season_1 = __importDefault(require('./models/Season'))
 const SeasonResult_1 = __importDefault(require('./models/SeasonResult'))
 const User_1 = __importDefault(require('./models/User'))
+const DailyPlay_1 = __importDefault(require('./models/DailyPlay'))
 const app = (0, express_1.default)()
+const rateLimit = require('./middleware/rateLimit')
 app.use((0, cors_1.default)())
 app.use(express_1.default.json())
+// Global rate limits: light per-user/IP limiter + burst limiter
+app.use(rateLimit.globalLimiter())
+app.use(rateLimit.burstLimiter())
 app.get('/', (_req, res) => {
   res.json({ status: 'ok', name: 'Crack The Code API' })
 })
@@ -77,10 +83,26 @@ app.get(['/link/reset', '/reset'], (req, res) => {
     res.status(400).send('Invalid link')
   }
 })
-app.use('/api/auth', auth_1.default)
+// Apply stricter limiter and idempotency for sensitive write endpoints
+app.use(
+  '/api/auth',
+  rateLimit.sensitiveLimiter(),
+  rateLimit.idempotency(),
+  auth_1.default
+)
 app.use('/api/leaderboard', leaderboard_1.default)
-app.use('/api/seasons', seasons_1.default)
-app.use('/api/notifications', notifications_1.default)
+app.use('/api/seasons', rateLimit.sensitiveLimiter(), seasons_1.default)
+app.use(
+  '/api/rewards',
+  rateLimit.sensitiveLimiter(),
+  rateLimit.idempotency(),
+  rewards_1.default
+)
+app.use(
+  '/api/notifications',
+  rateLimit.sensitiveLimiter(),
+  notifications_1.default
+)
 const server = http_1.default.createServer(app)
 const io = new socket_io_1.Server(server, {
   cors: { origin: '*' },
@@ -94,6 +116,45 @@ async function start() {
     await mongoose_1.default.connect(MONGO_URI)
     console.log('Connected to MongoDB')
     // background job: finalize seasons automatically when ended and not snapshotDone
+    // background job: enforce Top250 division (exactly 250 players)
+    setInterval(async () => {
+      try {
+        const TOP_N = 250
+        const users = await User_1.default
+          .find({}, { _id: 1 })
+          .sort({ eloPoints: -1, updatedAt: 1 })
+          .limit(TOP_N)
+          .lean()
+
+        let place = 1
+        const topIds = []
+        for (const u of users) {
+          topIds.push(u._id)
+          await User_1.default.updateOne(
+            { _id: u._id },
+            { $set: { divisionTier: 'Top250', elitePlace: place } }
+          )
+          place++
+        }
+
+        await User_1.default.updateMany(
+          { _id: { $nin: topIds }, divisionTier: 'Top250' },
+          { $set: { divisionTier: 'Diamond', elitePlace: null } }
+        )
+      } catch (_) {}
+    }, 60 * 1000)
+    // Periodic cleanup: remove DailyPlay docs older than 2 days
+    setInterval(async () => {
+      try {
+        const cutoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+        const res = await DailyPlay_1.default.deleteMany({
+          createdAt: { $lt: cutoff },
+        })
+        if (res && res.deletedCount) {
+          console.log('[cleanup] DailyPlay deleted', res.deletedCount, 'docs')
+        }
+      } catch (_) {}
+    }, 6 * 60 * 60 * 1000) // run every 6 hours
     setInterval(async () => {
       try {
         const now = new Date()
@@ -125,6 +186,24 @@ async function start() {
             )
             rank++
           }
+          // Create Reward entries for top N winners
+          try {
+            const seasonDoc = await Season_1.default.findById(s._id).lean()
+            const topN = Math.max(
+              1,
+              Math.min(100, Number(seasonDoc?.numberOfWinners || 1))
+            )
+            for (let i = 0; i < Math.min(topN, users.length); i++) {
+              const u = users[i]
+              const Reward = require('./models/Reward').default
+              await Reward.updateOne(
+                { seasonName: s.name, userId: u._id },
+                { $setOnInsert: { rank: i + 1, status: 'pending' } },
+                { upsert: true }
+              )
+            }
+          } catch (_) {}
+
           await Season_1.default.updateOne(
             { _id: s._id },
             { $set: { snapshotDone: true } }

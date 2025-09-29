@@ -10,8 +10,11 @@ const Notification_1 = __importDefault(require('../models/Notification'))
 const auth_1 = require('../middleware/auth')
 const User_1 = __importDefault(require('../models/User'))
 const router = (0, express_1.Router)()
+const rateLimit = require('../middleware/rateLimit')
+const strictLimiter = rateLimit.sensitiveLimiter({ max: 20 })
+const idem = rateLimit.idempotency()
 
-router.get('/', async (_req, res) => {
+router.get('/', strictLimiter, async (_req, res) => {
   try {
     const now = new Date()
     const list = await Notification_1.default
@@ -27,23 +30,30 @@ router.get('/', async (_req, res) => {
   }
 })
 
-router.post('/', auth_1.requireAuth, auth_1.requireAdmin, async (req, res) => {
-  try {
-    const user = await User_1.default.findById(req.userId)
-    if (!user || (user.role || 'User') !== 'Admin')
-      return res.status(403).json({ error: 'Forbidden' })
-    const { title, body, expiresAt } = req.body || {}
-    if (!title || !body)
-      return res.status(400).json({ error: 'Missing fields' })
-    const n = await Notification_1.default.create({
-      title,
-      body,
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
-    })
-    return res.json(n)
-  } catch (e) {
-    return res.status(500).json({ error: 'Failed to create notification' })
+router.post(
+  '/',
+  strictLimiter,
+  auth_1.requireAuth,
+  auth_1.requireAdmin,
+  idem,
+  async (req, res) => {
+    try {
+      const user = await User_1.default.findById(req.userId)
+      if (!user || (user.role || 'User') !== 'Admin')
+        return res.status(403).json({ error: 'Forbidden' })
+      const { title, body, expiresAt } = req.body || {}
+      if (!title || !body)
+        return res.status(400).json({ error: 'Missing fields' })
+      const n = await Notification_1.default.create({
+        title,
+        body,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+      })
+      return res.json(n)
+    } catch (e) {
+      return res.status(500).json({ error: 'Failed to create notification' })
+    }
   }
-})
+)
 
 exports.default = router

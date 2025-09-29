@@ -11,6 +11,7 @@ const SeasonSchema = new mongoose_1.default.Schema(
     name: { type: String, required: true, unique: true },
     startAt: { type: Date, required: true, index: true },
     endAt: { type: Date, required: true, index: true },
+    numberOfWinners: { type: Number, default: 1 },
     payoutUntil: { type: Date, default: null },
     snapshotDone: { type: Boolean, default: false, index: true },
   },
