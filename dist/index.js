@@ -28,6 +28,7 @@ const leaderboard_1 = __importDefault(require('./routes/leaderboard'))
 const seasons_1 = __importDefault(require('./routes/seasons'))
 const rewards_1 = __importDefault(require('./routes/rewards'))
 const notifications_1 = __importDefault(require('./routes/notifications'))
+const privacy_1 = __importDefault(require('./routes/privacy'))
 const gameServer_1 = require('./realtime/gameServer')
 const Season_1 = __importDefault(require('./models/Season'))
 const SeasonResult_1 = __importDefault(require('./models/SeasonResult'))
@@ -103,6 +104,12 @@ app.use(
   '/api/notifications',
   rateLimit.sensitiveLimiter(),
   notifications_1.default
+)
+app.use(
+  '/api/privacy',
+  rateLimit.sensitiveLimiter(),
+  rateLimit.idempotency(),
+  privacy_1.default
 )
 const server = http_1.default.createServer(app)
 const io = new socket_io_1.Server(server, {
