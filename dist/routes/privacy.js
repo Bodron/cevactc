@@ -3,6 +3,7 @@ const { Router } = require('express')
 const rateLimit = require('../middleware/rateLimit')
 const { requireAuth, requireAdmin } = require('../middleware/auth')
 const DeleteRequest = require('../models/DeleteRequest')
+const User = require('../models/User').default || require('../models/User')
 
 const router = Router()
 const limiter = rateLimit.sensitiveLimiter({ max: 20 })
@@ -17,9 +18,14 @@ router.post('/delete-request', limiter, idem, requireAuth, async (req, res) => {
     if (!['delete_account', 'delete_data'].includes(type)) {
       return res.status(400).json({ error: 'Invalid type' })
     }
-    const email = String(req.body?.email || '')
-      .trim()
-      .toLowerCase()
+    // Always derive email from the authenticated user to prevent spoofing
+    let email = ''
+    try {
+      const u = await User.findById(userId).lean()
+      email = String(u?.email || '')
+        .trim()
+        .toLowerCase()
+    } catch (_) {}
     const existing = await DeleteRequest.findOne({
       userId,
       status: { $in: ['pending', 'in_progress'] },
