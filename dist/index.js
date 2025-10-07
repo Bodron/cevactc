@@ -52,6 +52,25 @@ app.get('/api/realtime/health', (_req, res) => {
     res.status(500).json({ status: 'error' })
   }
 })
+// Unthrottled (besides global limits): seasons/current is polled by clients often;
+// expose it here BEFORE attaching the per-path sensitive limiter to /api/seasons
+// so it won't return 429 while users quickly re-queue ranked.
+app.get('/api/seasons/current', async (_req, res) => {
+  try {
+    const now = new Date()
+    const season = await Season_1.default
+      .findOne({ startAt: { $lte: now }, endAt: { $gte: now } })
+      .sort({ startAt: -1 })
+      .lean()
+    const pause = await Season_1.default
+      .findOne({ endAt: { $lt: now }, payoutUntil: { $gte: now } })
+      .sort({ endAt: -1 })
+      .lean()
+    return res.json({ season, paused: !!pause })
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to load season' })
+  }
+})
 // Deep-link redirector: opens app via custom scheme from a HTTPS link
 app.get(['/link/reset', '/reset'], (req, res) => {
   try {
